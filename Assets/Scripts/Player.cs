@@ -7,20 +7,52 @@ public class Player : MonoBehaviour {
 
 	public int playerNum;
 
+	public Scoreboard scoreboard;
+
+	// VARIABLES FOR CONTROLLING ITEM HOLDING
 	public bool hasItem;
 	public float itemHeldTime;
 	public float MAX_ITEM_HOLD_TIME;
 
+	// CONTROL MODES
+
 	public bool isDead;
 	public bool isGameOver;
 
-	public int explodeOption;
-
 	public SpriteRenderer playerRenderer;
-	public Sprite[] explodeSprites;
+	public GameObject[] explodeSprites;
 
 	public MapManagerScript mapManager;
 
+	// ENERGY COST FOR USING EXPLOSION
+	public int NEAR_EXPLOSION_COST;
+	public int MID_EXPLOSION_COST;
+	public int FAR_EXPLOSION_COST;
+
+	public float NEAR_EXPLOSION_RECOVERY_TIME;
+	public float MID_EXPLOSION_RECOVERY_TIME;
+	public float FAR_EXPLOSION_RECOVERY_TIME;
+
+	// TIME VARIABLE FOR DETERMINING WHEN CAN NEXT EXPLOSION BE USED
+	float rechargeTimeLeft;
+
+	// TIME VARIABLE FOR DETERMING ENERGY DEGENERATION
+	public float MAX_INACTIVITY_DURATION;
+	public float DEGEN_RATE;
+	float stasisDuration;
+	bool degen;
+	float degenDuration;
+
+	int originXCoord;
+	int originYCoord;
+	float originX;
+	float originY;
+
+	public bool hasOpenedAllSides;
+
+	Rigidbody2D rb;
+	PlayerExplosionScript playerExplosion;
+	Energy playerEnergy;
 	Tile[,] map;
 
 
@@ -38,45 +70,92 @@ public class Player : MonoBehaviour {
 
 	public int x;
 	public int y;
-	public int maxMapSize;
+	int maxMapSize;
 
 	// Use this for initialization
 	void Start () {
 		// sets up player attributes
 		hasItem = false;
 		itemHeldTime = 0;
-		explodeOption = -1;
+		stasisDuration = 0;
+		originX = transform.position.x;
+		originY = transform.position.y;
+		originXCoord = x;
+		originYCoord = y;
+
+		rb = GetComponent<Rigidbody2D> ();
+		playerExplosion = GetComponent<PlayerExplosionScript> ();
+		playerEnergy = GetComponent<Energy> ();
 
 		// assigns a reference of game map to player
 		map = mapManager.map;
 		maxMapSize = mapManager.mapSize - 1;
+
+		map [x, y].EnterTile ();
 	}
 	
 	// Update is called once per frame
 	void Update () {
 
-		if (!isGameOver) {
-			// TODO:
-			// 2. implement player explosion controls
+		if (rb.velocity != Vector2.zero) {
+			rb.velocity = Vector2.zero;
+		}
+
+		if (!isGameOver && !isDead) {
+			float deltaTime = Time.deltaTime;
+
+			if (degen) {
+				degenDuration += deltaTime;
+
+				if (degenDuration >= DEGEN_RATE) {
+					playerEnergy.Modify (-1);
+					degenDuration -= DEGEN_RATE;
+				}
+			}
+
+			stasisDuration += deltaTime;
+
+			if (stasisDuration >= MAX_INACTIVITY_DURATION) {
+				degen = true;
+			} else if (stasisDuration < MAX_INACTIVITY_DURATION) {
+				degen = false;
+				degenDuration = 0;
+			}
 
 			if (hasItem) {
-				itemHeldTime += Time.deltaTime;
+				itemHeldTime += deltaTime;
+			}
+
+			if (rechargeTimeLeft < 0) {
+				hasOpenedAllSides = false;
+				FoldBack ();
+				rechargeTimeLeft = 0;
+			} else if (rechargeTimeLeft > 0) {
+				rechargeTimeLeft -= deltaTime;
 			}
 
 			// if player has absorbed the item for the fixed set of time
-			if (itemHeldTime >= MAX_ITEM_HOLD_TIME) {
+			if (itemHeldTime >= MAX_ITEM_HOLD_TIME && hasItem) {
 				hasItem = false;
+				itemHeldTime = 0;
+				if (playerNum == 0) {
+					scoreboard.UpdateP1Item ();
+				} else if (playerNum == 1) {
+					scoreboard.UpdateP2Item ();
+				}
 				mapManager.SpawnItemAtRandomTile ();
 			}
-
-			UpdateControllerForPlayer ();
 		}
+	}
+
+	void FixedUpdate() {
+		UpdateControllerForPlayer ();
 	}
 
 	void UpdateControllerForPlayer() {
 		var inputDevice = (InputManager.Devices.Count > playerNum) ? InputManager.Devices [playerNum] : null;
 		if (inputDevice == null) {
-			//print ("Device not detected for player " + (playerNum + 1));
+			// do nothing
 		} else {
 			UpdateMovementWithInputDevice (inputDevice);
 			UpdateExplosionWithInputDevice (inputDevice);
@@ -84,113 +163,328 @@ public class Player : MonoBehaviour {
 	}
 
 	void UpdateMovementWithInputDevice(InputDevice inputDevice) {
-		//print ("Updating player movement for player " + (playerNum + 1));
-		if (inputDevice.DPadUp.WasPressed) {
-			MoveUp ();
-		} else if (inputDevice.DPadDown.WasPressed) {
-			MoveDown ();
-		} else if (inputDevice.DPadLeft.WasPressed) {
-			MoveLeft ();
-		} else if (inputDevice.DPadRight.WasPressed) {
-			MoveRight ();
+		if (rechargeTimeLeft <= 0) {
+			if (inputDevice.DPadUp.WasPressed) {
+				MoveUp ();
+			} else if (inputDevice.DPadDown.WasPressed) {
+				MoveDown ();
+			} else if (inputDevice.DPadLeft.WasPressed) {
+				MoveLeft ();
+			} else if (inputDevice.DPadRight.WasPressed) {
+				MoveRight ();
+			}
+		}
+	}
+
+	// Checks if there are other players blocking the current player's sides
+	// Specify the desired sides to check for by turning on the respective direction booleans
+	bool isRelevantSidesOccupied (bool up, bool down, bool left, bool right) {
+		bool isLeftSideOccupied = (x - 1 >= 0) ? map[x - 1, y].isOccupied : false;
+		bool isRightSideOccupied = (x + 1 <= maxMapSize) ? map[x + 1, y].isOccupied : false;
+		bool isUpSideOccupied = (y + 1 <= maxMapSize) ? map[x, y + 1].isOccupied : false;
+		bool isDownSideOccupied = (y - 1 >= 0) ? map[x, y - 1].isOccupied : false;
+
+		bool outcome = false;
+
+		if (left) {
+			outcome = outcome || isLeftSideOccupied;
+		}
+		if (right) {
+			outcome = outcome || isRightSideOccupied;
+		}
+		if (up) {
+			outcome = outcome || isUpSideOccupied;
+		}
+		if (down) {
+			outcome = outcome || isDownSideOccupied;
+		}
+
+		return outcome;
+	}
+
+	void OpenSides(bool up, bool down, bool left, bool right) {
+		if (up) {
+			explodeSprites [0].SetActive (true);
+		} else {
+			explodeSprites [0].SetActive (false);
+		}
+
+		if (down) {
+			explodeSprites [1].SetActive (true);
+		} else {
+			explodeSprites [1].SetActive (false);
+		}
+
+		if (left) {
+			explodeSprites [2].SetActive (true);
+		} else {
+			explodeSprites [2].SetActive (false);
+		}
+
+		if (right) {
+			explodeSprites [3].SetActive (true);
+		} else {
+			explodeSprites [3].SetActive (false);
+		}
+	}
+
+	void FoldBack() {
+		for (int i = 0; i < 4; i++) {
+			explodeSprites [i].SetActive (false);
 		}
 	}
 
 	void UpdateExplosionWithInputDevice(InputDevice inputDevice) {
-		//print ("Updating explosion for player " + (playerNum + 1));
 		// UP: 4
 		// DOWN: 1
 		// LEFT: 3
 		// RIGHT: 2
-		if (inputDevice.RightTrigger.WasPressed) {		// ALL #10
-			// TODO: explode in all 4 directions
-			// (1 tile range each direction)
-		} else if (inputDevice.Action4.WasPressed &&
-				   inputDevice.Action3.WasPressed) {	// UP + LEFT #6
-			// TODO: explode up and left
-			// (2 tile range each direction)
-		} else if (inputDevice.Action4.WasPressed &&
-				   inputDevice.Action1.WasPressed) {	// UP + DOWN #5
-			// TODO: explode up and down
-			// (2 tile range each direction)
-		} else if (inputDevice.Action4.WasPressed &&
-				   inputDevice.Action2.WasPressed) {	// UP + RIGHT #4
-			// TODO: explode up and right
-			// (2 tile range each direction)
-		} else if (inputDevice.Action3.WasPressed &&
-				   inputDevice.Action1.WasPressed) {	// LEFT + DOWN #9
-			// TODO: explode left and down
-			// (2 tile range each direction)
-		} else if (inputDevice.Action3.WasPressed &&
-				   inputDevice.Action2.WasPressed) {	// LEFT + RIGHT #8
-			// TODO: explode left and right
-			// (2 tile range each direction)
-		} else if (inputDevice.Action1.WasPressed &&
-				   inputDevice.Action2.WasPressed) {	// DOWN + RIGHT #7
-			// TODO: explode left and down
-			// (2 tile range each direction)
-		} else if (inputDevice.Action1.IsPressed) {		// DOWN #2
-			// TODO: explode down
-			// (4 tile range each direction)
-		} else if (inputDevice.Action2.WasPressed) {	// RIGHT #1
-			// TODO: explode right
-			// (4 tile range each direction)
-		} else if (inputDevice.Action3.WasPressed) {	// LEFT #3
-			// TODO: explode left
-			// (4 tile range each direction)
-		} else if (inputDevice.Action4.WasPressed) {	// UP #0
-			// TODO: explode up
-			// (4 tile range each direction)
+		if (rechargeTimeLeft <= 0) {
+			if (inputDevice.RightTrigger.WasPressed &&
+				!isRelevantSidesOccupied(true, true, true, true)) {		// ALL #10
+				
+				// explode in all 4 directions
+				// (1 tile range each direction)
+				if (playerEnergy.CurrentEnergy >= NEAR_EXPLOSION_COST) {	// if player has enough energy
+					hasOpenedAllSides = true;
+					playerEnergy.Modify (-NEAR_EXPLOSION_COST);
+					OpenSides (true, true, true, true);
+					playerExplosion.TriggerExplosion (0, 0, 0, 0);
+					rechargeTimeLeft = playerExplosion.ATTACK_DURATION + NEAR_EXPLOSION_RECOVERY_TIME;
+				}
+
+			} else if (inputDevice.Action4.WasPressed &&
+					   inputDevice.Action3.WasPressed &&
+					   !isRelevantSidesOccupied(true, false, true, false)) {	// UP + LEFT #6
+
+				// explode up and left
+				// (2 tile range each direction)
+				if (playerEnergy.CurrentEnergy >= MID_EXPLOSION_COST) {		// if player has enough energy
+					hasOpenedAllSides = false;
+					playerEnergy.Modify (-MID_EXPLOSION_COST);
+					OpenSides (true, false, true, false);
+					playerExplosion.TriggerExplosion (1, -1, 1, -1);
+					rechargeTimeLeft = playerExplosion.ATTACK_DURATION + MID_EXPLOSION_RECOVERY_TIME;
+				}
+
+			} else if (inputDevice.Action4.WasPressed &&
+					   inputDevice.Action1.WasPressed &&
+					   !isRelevantSidesOccupied(true, true, false, false)) {	// UP + DOWN #5
+
+				// explode up and down
+				// (2 tile range each direction)
+				if (playerEnergy.CurrentEnergy >= MID_EXPLOSION_COST) {		// if player has enough energy
+					hasOpenedAllSides = false;
+					playerEnergy.Modify (-MID_EXPLOSION_COST);
+					OpenSides (true, true, false, false);
+					playerExplosion.TriggerExplosion (1, 1, -1, -1);
+					rechargeTimeLeft = playerExplosion.ATTACK_DURATION + MID_EXPLOSION_RECOVERY_TIME;
+				}
+
+			} else if (inputDevice.Action4.WasPressed &&
+					   inputDevice.Action2.WasPressed &&
+					   !isRelevantSidesOccupied(true, false, false, true)) {	// UP + RIGHT #4
+
+				// explode up and right
+				// (2 tile range each direction)
+				if (playerEnergy.CurrentEnergy >= MID_EXPLOSION_COST) {		// if player has enough energy
+					hasOpenedAllSides = false;
+					playerEnergy.Modify (-MID_EXPLOSION_COST);
+					OpenSides (true, false, false, true);
+					playerExplosion.TriggerExplosion (1, -1, -1, 1);
+					rechargeTimeLeft = playerExplosion.ATTACK_DURATION + MID_EXPLOSION_RECOVERY_TIME;
+				}
+
+			} else if (inputDevice.Action3.WasPressed &&
+					   inputDevice.Action1.WasPressed &&
+					   !isRelevantSidesOccupied(false, true, true, false)) {	// LEFT + DOWN #9
+
+				// explode left and down
+				// (2 tile range each direction)
+				if (playerEnergy.CurrentEnergy >= MID_EXPLOSION_COST) {		// if player has enough energy
+					hasOpenedAllSides = false;
+					playerEnergy.Modify (-MID_EXPLOSION_COST);
+					OpenSides (false, true, true, false);
+					playerExplosion.TriggerExplosion (-1, 1, 1, -1);
+					rechargeTimeLeft = playerExplosion.ATTACK_DURATION + MID_EXPLOSION_RECOVERY_TIME;
+				}
+
+			} else if (inputDevice.Action3.WasPressed &&
+					   inputDevice.Action2.WasPressed &&
+					   !isRelevantSidesOccupied(false, false, true, true)) {	// LEFT + RIGHT #8
+
+				// explode left and right
+				// (2 tile range each direction)
+				if (playerEnergy.CurrentEnergy >= MID_EXPLOSION_COST) {		// if player has enough energy
+					hasOpenedAllSides = false;
+					playerEnergy.Modify (-MID_EXPLOSION_COST);
+					OpenSides (false, false, true, true);
+					playerExplosion.TriggerExplosion (-1, -1, 1, 1);
+					rechargeTimeLeft = playerExplosion.ATTACK_DURATION + MID_EXPLOSION_RECOVERY_TIME;
+				}
+
+			} else if (inputDevice.Action1.WasPressed &&
+					   inputDevice.Action2.WasPressed &&
+					   !isRelevantSidesOccupied(false, true, false, true)) {	// DOWN + RIGHT #7
+
+				// explode left and down
+				// (2 tile range each direction)
+				if (playerEnergy.CurrentEnergy >= MID_EXPLOSION_COST) {		// if player has enough energy
+					hasOpenedAllSides = false;
+					playerEnergy.Modify (-MID_EXPLOSION_COST);
+					OpenSides (false, true, false, true);
+					playerExplosion.TriggerExplosion (-1, 1, -1, 1);
+					rechargeTimeLeft = playerExplosion.ATTACK_DURATION + MID_EXPLOSION_RECOVERY_TIME;
+				}
+
+			} else if (inputDevice.Action1.IsPressed &&
+					   !isRelevantSidesOccupied(false, true, false, false)) {		// DOWN #2
+
+				// explode down
+				// (4 tile range each direction)
+				if (playerEnergy.CurrentEnergy >= FAR_EXPLOSION_COST) {		// if player has enough energy
+					hasOpenedAllSides = false;
+					playerEnergy.Modify (-FAR_EXPLOSION_COST);
+					OpenSides (false, true, false, false);
+					playerExplosion.TriggerExplosion (-1, 2, -1, -1);
+					rechargeTimeLeft = playerExplosion.ATTACK_DURATION + FAR_EXPLOSION_RECOVERY_TIME;
+				}
+
+			} else if (inputDevice.Action2.WasPressed &&
+					   !isRelevantSidesOccupied(false, false, false, true)) {	// RIGHT #1
+
+				// explode right
+				// (4 tile range each direction)
+				if (playerEnergy.CurrentEnergy >= FAR_EXPLOSION_COST) {		// if player has enough energy
+					hasOpenedAllSides = false;
+					playerEnergy.Modify (-FAR_EXPLOSION_COST);
+					OpenSides (false, false, false, true);
+					playerExplosion.TriggerExplosion (-1, -1, -1, 2);
+					rechargeTimeLeft = playerExplosion.ATTACK_DURATION + FAR_EXPLOSION_RECOVERY_TIME;
+				}
+
+			} else if (inputDevice.Action3.WasPressed &&
+					   !isRelevantSidesOccupied(false, false, true, false)) {	// LEFT #3
+
+				// explode left
+				// (4 tile range each direction)
+				if (playerEnergy.CurrentEnergy >= FAR_EXPLOSION_COST) {		// if player has enough energy
+					hasOpenedAllSides = false;
+					playerEnergy.Modify (-FAR_EXPLOSION_COST);
+					OpenSides (false, false, true, false);
+					playerExplosion.TriggerExplosion (-1, -1, 2, -1);
+					rechargeTimeLeft = playerExplosion.ATTACK_DURATION + FAR_EXPLOSION_RECOVERY_TIME;
+				}
+
+			} else if (inputDevice.Action4.WasPressed &&
+					   !isRelevantSidesOccupied(true, false, false, false)) {	// UP #0
+
+				// explode up
+				// (4 tile range each direction)
+				if (playerEnergy.CurrentEnergy >= FAR_EXPLOSION_COST) {		// if player has enough energy
+					hasOpenedAllSides = false;
+					playerEnergy.Modify (-FAR_EXPLOSION_COST);
+					OpenSides (true, false, false, false);
+					playerExplosion.TriggerExplosion (2, -1, -1, -1);
+					rechargeTimeLeft = playerExplosion.ATTACK_DURATION + FAR_EXPLOSION_RECOVERY_TIME;
+				}
+
+			}
 		}
 	}
 
-	void PickItemFromTile() {
-		map [x, y].PickItemFromTile (this);
-	}
-
-	// Movement uses joystick
-	// If [x == y], prefer x
-
 	void MoveUp() {
-		if (y > 0) {
-			y -= 1;
-			transform.Translate (Vector3.up);
+		if (y < maxMapSize && !map[x, y + 1].isOccupied) {
+			map [x, y].LeaveTile ();
+			y += 1;
+			map [x, y].EnterTile ();
+			if (map [x, y].hasItem) {
+				map [x, y].PickItemFromTile ();
+				hasItem = true;
+			}
+			//transform.Translate (Vector3.up);
+			rb.MovePosition(transform.position + Vector3.up);
+			playerEnergy.Modify (1);
+			stasisDuration = 0;
 		}
 	}
 
 	void MoveDown() {
-		if (y < maxMapSize) {
-			y += 1;
-			transform.Translate (Vector3.down);
+		if (y > 0 && !map[x, y - 1].isOccupied) {
+			map [x, y].LeaveTile ();
+			y -= 1;
+			map [x, y].EnterTile ();
+			if (map [x, y].hasItem) {
+				map [x, y].PickItemFromTile ();
+				hasItem = true;
+			}
+			//transform.Translate (Vector3.down);
+			rb.MovePosition(transform.position + Vector3.down);
+			playerEnergy.Modify (1);
+			stasisDuration = 0;
 		}
 	}
 
 	void MoveLeft() {
-		if (x > 0) {
+		if (x > 0 && !map[x - 1, y].isOccupied) {
+			map [x, y].LeaveTile ();
 			x -= 1;
-			transform.Translate (Vector3.left);
+			map [x, y].EnterTile ();
+			if (map [x, y].hasItem) {
+				map [x, y].PickItemFromTile ();
+				hasItem = true;
+			}
+			//transform.Translate (Vector3.left);
+			rb.MovePosition(transform.position + Vector3.left);
+			playerEnergy.Modify (1);
+			stasisDuration = 0;
 		}
 	}
 
 	void MoveRight() {
-		if (x < maxMapSize) {
+		if (x < maxMapSize && !map[x + 1, y].isOccupied) {
+			map [x, y].LeaveTile ();
 			x += 1;
-			transform.Translate (Vector3.right);
+			map [x, y].EnterTile ();
+			if (map [x, y].hasItem) {
+				map [x, y].PickItemFromTile ();
+				hasItem = true;
+			}
+			//transform.Translate (Vector3.right);
+			rb.MovePosition(transform.position + Vector3.right);
+			playerEnergy.Modify (1);
+			stasisDuration = 0;
 		}
 	}
 
-	void TriggerExplosion(int option) {
-		// TODO: implement player explosion controls
-		// based on the type of explosion button pressed on Controller
-	}
+	public void Die() {
+		print ("Player " + (playerNum + 1) + " has died.");
+		isDead = true;
+		map [x, y].LeaveTile ();
 
-	void Die() {
+		if (playerNum == 0) {
+			scoreboard.UpdateP1Death ();
+		} else if (playerNum == 1) {
+			scoreboard.UpdateP2Death ();
+		}
+
 		if (hasItem) {
 			hasItem = false;
-			// TODO: set player inactive maybe?
 
 			// drops held item at current spot
 			map [x, y].SpawnItem ();
+		}
+
+		isDead = false;
+		transform.position = new Vector3 (originX, originY, 0);
+		x = originXCoord;
+		y = originYCoord;
+	}
+
+	void OnCollisionEnter2D (Collision2D other) {
+		Rigidbody2D otherRb = other.gameObject.GetComponent<Rigidbody2D> ();
+		if (otherRb != null) {
+			otherRb.velocity = Vector2.zero;
 		}
 	}
 }

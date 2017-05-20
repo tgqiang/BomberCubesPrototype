@@ -12,7 +12,7 @@ public class MapManagerScript : MonoBehaviour {
 
 	// Use this for initialization
 	// Sets up the play field
-	void Start () {
+	void Awake () {
 		// initialize 2D-array map
 		map = new Tile[mapSize, mapSize];
 
@@ -34,6 +34,24 @@ public class MapManagerScript : MonoBehaviour {
 				tile.SetActive (true);
 			}
 		}
+
+		map [0, 1].isObstacle = true;
+		map [1, 1].isObstacle = true;
+		map [2, 1].isObstacle = true;
+
+		map [1, 7].isObstacle = true;
+		map [1, 8].isObstacle = true;
+		map [1, 9].isObstacle = true;
+
+		map [7, 8].isObstacle = true;
+		map [8, 8].isObstacle = true;
+		map [9, 8].isObstacle = true;
+
+		map [8, 0].isObstacle = true;
+		map [8, 1].isObstacle = true;
+		map [8, 2].isObstacle = true;
+
+		SpawnItemAtRandomTile ();
 	}
 
 	public void SpawnItemAtRandomTile() {
@@ -41,6 +59,10 @@ public class MapManagerScript : MonoBehaviour {
 		int x = Random.Range(0, mapSize);
 		int y = Random.Range(0, mapSize);
 
-		map [x, y].SpawnItem ();
+		if (map [x, y].isObstacle) {
+			SpawnItemAtRandomTile ();
+		} else {
+			map [x, y].SpawnItem ();
+		}
 	}
 }

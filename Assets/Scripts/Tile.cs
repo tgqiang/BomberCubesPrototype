@@ -5,9 +5,13 @@ using System.Collections;
 public class Tile : MonoBehaviour {
 
 	public Sprite tileDefault;
+	public Sprite tileObstacle;
 	public Sprite tileWithItem;
 
+	public bool isOccupied;
 	public bool hasItem;
+
+	public bool isObstacle;
 
 	SpriteRenderer tileRenderer;
 
@@ -19,7 +23,12 @@ public class Tile : MonoBehaviour {
 		if (hasItem) {
 			tileRenderer.sprite = tileWithItem;
 		} else {
-			tileRenderer.sprite = tileDefault;
+			if (isObstacle) {
+				isOccupied = true;
+				tileRenderer.sprite = tileObstacle;
+			} else {
+				tileRenderer.sprite = tileDefault;
+			}
 		}
 	}
 
@@ -27,8 +36,16 @@ public class Tile : MonoBehaviour {
 		hasItem = true;
 	}
 
-	public void PickItemFromTile(Player p) {
+	public void PickItemFromTile() {
 		hasItem = false;
-		p.hasItem = true;
 	}
+
+	public void LeaveTile() {
+		isOccupied = false;
+	}
+
+	public void EnterTile() {
+		isOccupied = true;
+	}
+
 }
