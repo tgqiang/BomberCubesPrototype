@@ -1,12 +1,15 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.UI;
 
 public class GameManagerScript : MonoBehaviour {
 
 	public float GAME_DURATION;		// in seconds
 
 	float timeElapsed;
+
+	public Text gameOverText;
 
 	Player[] players;
 
@@ -26,6 +29,7 @@ public class GameManagerScript : MonoBehaviour {
 		if (timeElapsed >= GAME_DURATION) {
 			players [0].isGameOver = true;
 			players [1].isGameOver = true;
+			gameOverText.enabled = true;
 		}
 	}
 }
