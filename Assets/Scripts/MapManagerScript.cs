@@ -35,21 +35,12 @@ public class MapManagerScript : MonoBehaviour {
 			}
 		}
 
-		map [0, 1].isObstacle = true;
-		map [1, 1].isObstacle = true;
-		map [2, 1].isObstacle = true;
+		for (int i = 0; i < 8; i++) {
+			int x = Random.Range(0, mapSize);
+			int y = Random.Range(0, mapSize);
 
-		map [1, 7].isObstacle = true;
-		map [1, 8].isObstacle = true;
-		map [1, 9].isObstacle = true;
-
-		map [7, 8].isObstacle = true;
-		map [8, 8].isObstacle = true;
-		map [9, 8].isObstacle = true;
-
-		map [8, 0].isObstacle = true;
-		map [8, 1].isObstacle = true;
-		map [8, 2].isObstacle = true;
+			map [x, y].isObstacle = true;
+		}
 
 		SpawnItemAtRandomTile ();
 	}

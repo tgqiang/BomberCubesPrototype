@@ -14,7 +14,7 @@ public class Player : MonoBehaviour {
 	public float itemHeldTime;
 	public float MAX_ITEM_HOLD_TIME;
 
-	// CONTROL MODES
+	float moveCd;
 
 	public bool isDead;
 	public bool isGameOver;
@@ -88,6 +88,7 @@ public class Player : MonoBehaviour {
 		stasisDuration = 0;
 		count = 0;
 		inputWindow = 0;
+		moveCd = 0;
 		originX = transform.position.x;
 		originY = transform.position.y;
 		originXCoord = x;
@@ -110,11 +111,19 @@ public class Player : MonoBehaviour {
 		if (!isGameOver && !isDead) {
 			float deltaTime = Time.deltaTime;
 
-			inputWindow += deltaTime;
+			if ((isLeftPressed || isRightPressed || isUpPressed || isDownPressed)) {
+				inputWindow += deltaTime;
+			}
+
+			moveCd -= deltaTime;
 
 			if (inputWindow > INVOKE_DELAY) {
 				// TODO: invoke attack
 				InvokeAttack();
+			}
+
+			if (moveCd <= 0) {
+				moveCd = 0;
 			}
 
 			if (degen) {
@@ -178,13 +187,13 @@ public class Player : MonoBehaviour {
 
 	void UpdateMovementWithInputDevice(InputDevice inputDevice) {
 		if (rechargeTimeLeft <= 0) {
-			if (inputDevice.DPadUp.WasPressed) {
+			if (inputDevice.DPadUp.IsPressed && moveCd <= 0) {
 				MoveUp ();
-			} else if (inputDevice.DPadDown.WasPressed) {
+			} else if (inputDevice.DPadDown.IsPressed && moveCd <= 0) {
 				MoveDown ();
-			} else if (inputDevice.DPadLeft.WasPressed) {
+			} else if (inputDevice.DPadLeft.IsPressed && moveCd <= 0) {
 				MoveLeft ();
-			} else if (inputDevice.DPadRight.WasPressed) {
+			} else if (inputDevice.DPadRight.IsPressed && moveCd <= 0) {
 				MoveRight ();
 			}
 		}
@@ -254,7 +263,7 @@ public class Player : MonoBehaviour {
 		// LEFT: 3
 		// RIGHT: 2
 		if (rechargeTimeLeft <= 0) {
-			if (inputDevice.RightTrigger.WasPressed) {		// ALL: immediately trigger it
+			if (inputDevice.RightTrigger.WasPressed && !isRelevantSidesOccupied(true, true, true, true)) {		// ALL: immediately trigger it
 
 				// explode in all 4 directions
 				// (1 tile range each direction)
@@ -618,6 +627,7 @@ public class Player : MonoBehaviour {
 			rb.MovePosition(transform.position + Vector3.up);
 			playerEnergy.Modify (1);
 			stasisDuration = 0;
+			moveCd = 0.25f;
 		}
 	}
 
@@ -634,6 +644,7 @@ public class Player : MonoBehaviour {
 			rb.MovePosition(transform.position + Vector3.down);
 			playerEnergy.Modify (1);
 			stasisDuration = 0;
+			moveCd = 0.25f;
 		}
 	}
 
@@ -650,6 +661,7 @@ public class Player : MonoBehaviour {
 			rb.MovePosition(transform.position + Vector3.left);
 			playerEnergy.Modify (1);
 			stasisDuration = 0;
+			moveCd = 0.25f;
 		}
 	}
 
@@ -666,6 +678,7 @@ public class Player : MonoBehaviour {
 			rb.MovePosition(transform.position + Vector3.right);
 			playerEnergy.Modify (1);
 			stasisDuration = 0;
+			moveCd = 0.25f;
 		}
 	}
 
